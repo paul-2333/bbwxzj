@@ -107,10 +107,35 @@ tr:nth-child(even):hover{background:#f5f8ff}
 .modal-body p{margin-bottom:12px}
 .footer{text-align:center;padding:20px;color:#aaa;font-size:13px}
 @media(max-width:768px){
-  .stats{grid-template-columns:repeat(2,1fr)}
-  .toolbar{flex-direction:column}
-  .toolbar input{min-width:auto;width:100%}
-  th,td{font-size:13px;padding:8px 10px}
+  .header{padding:20px 0 16px}
+  .header h1{font-size:18px}
+  .header p{font-size:12px}
+  .stats{grid-template-columns:repeat(2,1fr);gap:10px;margin:-16px auto 16px;padding:0 12px}
+  .stat-card{padding:12px 10px}
+  .stat-card .value{font-size:22px}
+  .container{padding:0 12px}
+  .toolbar{flex-direction:column;padding:12px;gap:8px}
+  .toolbar input,.toolbar select{min-width:0;width:100%}
+  .toolbar .btn{width:100%;text-align:center;padding:10px}
+  .table-wrap{border-radius:8px;margin:0 -4px 16px}
+  th,td{font-size:13px;padding:10px 8px}
+  th{white-space:nowrap}
+  td{max-width:180px}
+  .pagination{flex-wrap:wrap;gap:4px;padding:12px 0 24px}
+  .pagination a,.pagination span{padding:8px 12px;font-size:13px;min-width:36px;text-align:center}
+  .pagination .info{width:100%;text-align:center;margin:4px 0 0}
+  .modal{width:96%;max-height:85vh}
+  .modal-header{padding:14px 16px}
+  .modal-header h2{font-size:16px}
+  .modal-meta{padding:10px 16px;font-size:12px;gap:12px}
+  .modal-body{padding:14px 16px;font-size:14px}
+}
+@media(max-width:480px){
+  .stats{grid-template-columns:1fr}
+  .header h1{font-size:16px}
+  td{max-width:130px;font-size:12px;padding:8px 6px}
+  th{padding:8px 6px;font-size:12px}
+  .stat-card .value{font-size:20px}
 }
 </style>
 </head>
