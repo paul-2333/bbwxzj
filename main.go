@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ type Article struct {
 
 func main() {
 	serverMode := flag.Bool("server", false, "启动 Web 查询服务")
+	onceMode := flag.Bool("once", false, "单次爬取后退出")
 	flag.Parse()
 
 	dbPath := getEnv("DB_PATH", "./bengbu_wxjj.db")
@@ -43,6 +45,20 @@ func main() {
 		return
 	}
 
+	go startServer(db)
+
+	for {
+		crawlAll(db)
+		if *onceMode {
+			break
+		}
+		log.Println("等待 6 小时后重新爬取...")
+		time.Sleep(6 * time.Hour)
+	}
+}
+
+func crawlAll(db *sql.DB) {
+
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
@@ -54,8 +70,14 @@ func main() {
 		},
 	}
 
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM articles").Scan(&count)
 	totalPages := 371
-	log.Printf("Starting crawler: total %d pages", totalPages)
+	if count > 0 {
+		totalPages = 3
+	}
+
+	log.Printf("Starting crawler: %d pages (existing articles: %d)", totalPages, count)
 
 	for page := 1; page <= totalPages; page++ {
 		log.Printf("Fetching page %d/%d", page, totalPages)
@@ -211,17 +233,79 @@ func fetchDetailPage(client *http.Client, url string) (string, string, error) {
 
 func cleanContent(s string) string {
 	s = strings.ReplaceAll(s, "\u00a0", " ")
-	for strings.Contains(s, "\n\n\n") || strings.Contains(s, "\n \n") || strings.Contains(s, "\n\t\n") {
-		s = strings.ReplaceAll(s, "\n\n\n", "\n\n")
-		s = strings.ReplaceAll(s, "\n \n", "\n\n")
-		s = strings.ReplaceAll(s, "\n\t\n", "\n\n")
-	}
+	s = strings.ReplaceAll(s, "\r\n", "\n")
 	lines := strings.Split(s, "\n")
-	for i, line := range lines {
-		lines[i] = strings.TrimSpace(line)
+	var raw []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			raw = append(raw, line)
+		}
 	}
-	s = strings.Join(lines, "\n")
-	return strings.TrimSpace(s)
+	var result []string
+	i := 0
+	for i < len(raw) {
+		if raw[i] == "序号" && i+4 < len(raw) &&
+			raw[i+1] == "房号" &&
+			raw[i+2] == "维修内容" &&
+			raw[i+3] == "拨付金额" &&
+			raw[i+4] == "备注" {
+			result = append(result, "序号 | 房号 | 维修内容 | 拨付金额 | 备注")
+			i += 5
+			for i < len(raw) {
+				if strings.HasPrefix(raw[i], "公示时间") {
+					break
+				}
+				row := []string{raw[i]}
+				i++
+				for j := 0; j < 3 && i < len(raw); j++ {
+					if strings.HasPrefix(raw[i], "公示时间") {
+						break
+					}
+					row = append(row, raw[i])
+					i++
+				}
+				if len(row) >= 4 {
+					result = append(result, strings.Join(row, " | "))
+				} else {
+					for _, r := range row {
+						result = append(result, r)
+					}
+				}
+			}
+		} else if raw[i] == "序号" && i+3 < len(raw) &&
+			raw[i+1] == "房号" &&
+			raw[i+2] == "维修内容" &&
+			raw[i+3] == "拨付金额" {
+			result = append(result, "序号 | 房号 | 维修内容 | 拨付金额")
+			i += 4
+			for i < len(raw) {
+				if strings.HasPrefix(raw[i], "公示时间") {
+					break
+				}
+				row := []string{raw[i]}
+				i++
+				for j := 0; j < 2 && i < len(raw); j++ {
+					if strings.HasPrefix(raw[i], "公示时间") {
+						break
+					}
+					row = append(row, raw[i])
+					i++
+				}
+				if len(row) >= 3 {
+					result = append(result, strings.Join(row, " | "))
+				} else {
+					for _, r := range row {
+						result = append(result, r)
+					}
+				}
+			}
+		} else {
+			result = append(result, raw[i])
+			i++
+		}
+	}
+	return strings.Join(result, "\n")
 }
 
 func extractAmountFromHTML(doc *goquery.Document) string {
@@ -253,6 +337,16 @@ func extractAmountFromHTML(doc *goquery.Document) string {
 	})
 	if total > 0 {
 		return fmt.Sprintf("%.2f", total)
+	}
+	re := regexp.MustCompile(`维修资金列支金额[：:]\s*([\d,]+\.?\d*)`)
+	matches := re.FindStringSubmatch(doc.Text())
+	if len(matches) >= 2 {
+		return strings.ReplaceAll(matches[1], ",", "")
+	}
+	re2 := regexp.MustCompile(`拨付金额[：:]\s*([\d,]+\.?\d*)`)
+	matches2 := re2.FindStringSubmatch(doc.Text())
+	if len(matches2) >= 2 {
+		return strings.ReplaceAll(matches2[1], ",", "")
 	}
 	return ""
 }

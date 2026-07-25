@@ -136,7 +136,16 @@ tr:nth-child(even):hover{background:#f5f8ff}
       <option value="desc" {{if eq .Order "desc"}}selected{{end}}>降序</option>
       <option value="asc" {{if eq .Order "asc"}}selected{{end}}>升序</option>
     </select>
+    <select id="perPageSelect">
+      <option value="20" selected>20条</option>
+      <option value="50">50条</option>
+      <option value="100">100条</option>
+    </select>
     <button class="btn" onclick="search()">查询</button>
+    <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:13px;color:#888">
+      页码 <input type="number" id="pageInput" min="1" value="1" style="width:60px;padding:6px 8px">
+      <button class="btn" style="padding:6px 12px;font-size:13px" onclick="goPage(parseInt(document.getElementById('pageInput').value)||1)">跳转</button>
+    </span>
   </div>
 
   <div class="table-wrap">
@@ -144,8 +153,8 @@ tr:nth-child(even):hover{background:#f5f8ff}
       <thead>
         <tr>
           <th onclick="sortBy('title')">标题 <span class="sort-arrow">{{if eq .Sort "title"}}{{if eq .Order "asc"}}▲{{else}}▼{{end}}{{else}}▽{{end}}</span></th>
-          <th onclick="sortBy('publish_date')">日期 <span class="sort-arrow">{{if eq .Sort "publish_date"}}{{if eq .Order "asc"}}▲{{else}}▼{{end}}{{else}}▽{{end}}</span></th>
           <th onclick="sortBy('amount')">金额 <span class="sort-arrow">{{if eq .Sort "amount"}}{{if eq .Order "asc"}}▲{{else}}▼{{end}}{{else}}▽{{end}}</span></th>
+          <th onclick="sortBy('publish_date')">日期 <span class="sort-arrow">{{if eq .Sort "publish_date"}}{{if eq .Order "asc"}}▲{{else}}▼{{end}}{{else}}▽{{end}}</span></th>
         </tr>
       </thead>
       <tbody id="tableBody"></tbody>
@@ -180,6 +189,7 @@ let perPage = 20;
 
 function search() {
   currentQuery = document.getElementById('searchInput').value.trim();
+  perPage = parseInt(document.getElementById('perPageSelect').value) || 20;
   currentPage = 1;
   loadData();
 }
@@ -239,8 +249,8 @@ function renderTable(articles) {
     const amt = a.amount ? '<span class="amount">' + Number(a.amount).toLocaleString() + ' 元</span>' : '<span class="amount empty">-</span>';
     return '<tr>' +
       '<td><a class="title-link" href="javascript:void(0)" onclick="showDetail(' + a.id + ')">' + esc(a.title) + '</a></td>' +
-      '<td class="date">' + esc(a.publishDate) + '</td>' +
       '<td>' + amt + '</td>' +
+      '<td class="date">' + esc(a.publishDate) + '</td>' +
     '</tr>';
   }).join('');
 }
@@ -307,6 +317,12 @@ document.addEventListener('DOMContentLoaded', function() {
   });
   document.getElementById('orderSelect').addEventListener('change', function() {
     currentOrder = this.value; loadData();
+  });
+  document.getElementById('perPageSelect').addEventListener('change', function() {
+    perPage = parseInt(this.value) || 50; currentPage = 1; loadData();
+  });
+  document.getElementById('pageInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') goPage(parseInt(this.value) || 1);
   });
   loadData();
 });
