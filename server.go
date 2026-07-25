@@ -368,14 +368,19 @@ function loadSubscriptions() {
     el.innerHTML = '已订阅：' + list.map(s =>
       '<span style="display:inline-block;background:#e8f0fe;padding:3px 10px;border-radius:4px;margin:3px;font-size:12px">' +
       esc(s.email) + ' - ' + esc(s.community) +
-      ' <a href="javascript:unsub(' + s.id + ')" style="color:#e74c3c;text-decoration:none;margin-left:4px">✕</a></span>'
+      ' <a href="javascript:unsub(' + s.id + ',\'' + esc(s.email) + '\')" style="color:#e74c3c;text-decoration:none;margin-left:4px">✕</a></span>'
     ).join('');
   });
 }
 
-function unsub(id) {
-  fetch('/api/unsubscribe?id=' + id, {method: 'POST'}).then(r => r.json()).then(d => {
-    subMsg('已取消订阅', '#0d904f'); loadSubscriptions();
+function unsub(id, email) {
+  fetch('/api/unsubscribe', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id, email})
+  }).then(r => r.json()).then(d => {
+    if (d.error) subMsg(d.error, '#e74c3c');
+    else { subMsg('已取消订阅', '#0d904f'); loadSubscriptions(); }
   });
 }
 
@@ -559,13 +564,26 @@ func handleSubscribe(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 
 func handleUnsubscribe(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	idStr := r.URL.Query().Get("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid id"})
+	var req struct {
+		ID    int    `json:"id"`
+		Email string `json:"email"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	if req.ID == 0 || req.Email == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "参数错误"})
 		return
 	}
-	db.Exec("DELETE FROM subscriptions WHERE id = ?", id)
+	var storedEmail string
+	err := db.QueryRow("SELECT email FROM subscriptions WHERE id = ?", req.ID).Scan(&storedEmail)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": "订阅不存在"})
+		return
+	}
+	if storedEmail != req.Email {
+		json.NewEncoder(w).Encode(map[string]string{"error": "邮箱不匹配，无法取消"})
+		return
+	}
+	db.Exec("DELETE FROM subscriptions WHERE id = ?", req.ID)
 	json.NewEncoder(w).Encode(map[string]string{"ok": "success"})
 }
 

@@ -428,7 +428,7 @@ func sendMail(to, subject, htmlBody string) error {
 	if err != nil {
 		return fmt.Errorf("smtp client: %v", err)
 	}
-	defer client.Close()
+	defer client.Quit()
 	auth := smtp.PlainAuth("", smtpEmail, smtpPass, "smtp.qq.com")
 	if err = client.Auth(auth); err != nil {
 		return fmt.Errorf("auth: %v", err)
@@ -443,7 +443,6 @@ func sendMail(to, subject, htmlBody string) error {
 	if err != nil {
 		return fmt.Errorf("data: %v", err)
 	}
-	defer w.Close()
 	msg := "From: " + smtpEmail + "\r\n" +
 		"To: " + to + "\r\n" +
 		"Subject: " + subject + "\r\n" +
@@ -452,6 +451,7 @@ func sendMail(to, subject, htmlBody string) error {
 		"\r\n" +
 		htmlBody + "\r\n"
 	_, err = w.Write([]byte(msg))
+	w.Close()
 	return err
 }
 
@@ -495,6 +495,7 @@ func notifySubscribers(db *sql.DB) {
 			if err := sendMail(email, subject, body); err != nil {
 				log.Printf("Email error to %s: %v", email, err)
 			}
+			time.Sleep(2 * time.Second)
 		}
 		db.Exec("UPDATE subscriptions SET last_article_id = ? WHERE id = ?", maxID, subID)
 	}
