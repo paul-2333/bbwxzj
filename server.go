@@ -136,16 +136,7 @@ tr:nth-child(even):hover{background:#f5f8ff}
       <option value="desc" {{if eq .Order "desc"}}selected{{end}}>降序</option>
       <option value="asc" {{if eq .Order "asc"}}selected{{end}}>升序</option>
     </select>
-    <select id="perPageSelect">
-      <option value="20" selected>20条</option>
-      <option value="50">50条</option>
-      <option value="100">100条</option>
-    </select>
     <button class="btn" onclick="search()">查询</button>
-    <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:13px;color:#888">
-      页码 <input type="number" id="pageInput" min="1" value="1" style="width:60px;padding:6px 8px">
-      <button class="btn" style="padding:6px 12px;font-size:13px" onclick="goPage(parseInt(document.getElementById('pageInput').value)||1)">跳转</button>
-    </span>
   </div>
 
   <div class="table-wrap">
@@ -161,7 +152,20 @@ tr:nth-child(even):hover{background:#f5f8ff}
     </table>
   </div>
 
-  <div class="pagination" id="pagination"></div>
+  <div class="pagination">
+    <span style="display:flex;align-items:center;gap:8px;font-size:13px;color:#888;margin-right:16px">
+      <select id="perPageSelect">
+        <option value="20" selected>20条</option>
+        <option value="50">50条</option>
+        <option value="100">100条</option>
+      </select>
+    </span>
+    <span id="pageButtons"></span>
+    <span style="display:flex;align-items:center;gap:6px;font-size:13px;color:#888;margin-left:16px">
+      页码 <input type="number" id="pageInput" min="1" value="1" style="width:60px;padding:6px 8px;border:1px solid #d0d5dd;border-radius:6px;outline:none">
+      <button class="btn" style="padding:6px 12px;font-size:13px" onclick="goPage(parseInt(document.getElementById('pageInput').value)||1)">跳转</button>
+    </span>
+  </div>
 </div>
 
 <div class="modal-overlay" id="modal" onclick="closeModal(event)">
@@ -257,7 +261,7 @@ function renderTable(articles) {
 
 function renderPagination(total, page, perPage) {
   const totalPages = Math.ceil(total / perPage);
-  const el = document.getElementById('pagination');
+  const el = document.getElementById('pageButtons');
   if (totalPages <= 1) { el.innerHTML = ''; return; }
   let html = '';
   html += page > 1 ? '<a href="javascript:goPage(' + (page-1) + ')">上一页</a>' : '<span class="disabled">上一页</span>';

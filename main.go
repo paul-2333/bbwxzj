@@ -330,6 +330,8 @@ func extractAmountFromHTML(doc *goquery.Document) string {
 			}
 			valStr := strings.TrimSpace(cells.Eq(amountCol).Text())
 			valStr = strings.ReplaceAll(valStr, ",", "")
+			valStr = strings.ReplaceAll(valStr, "元", "")
+			valStr = strings.TrimSpace(valStr)
 			if val, err := strconv.ParseFloat(valStr, 64); err == nil && val > 0 {
 				total += val
 			}
@@ -338,15 +340,50 @@ func extractAmountFromHTML(doc *goquery.Document) string {
 	if total > 0 {
 		return fmt.Sprintf("%.2f", total)
 	}
-	re := regexp.MustCompile(`维修资金列支金额[：:]\s*([\d,]+\.?\d*)`)
-	matches := re.FindStringSubmatch(doc.Text())
+	text := doc.Text()
+	re := regexp.MustCompile(`维修资金列支金额[：:]?[^0-9]*([\d,]+\.?\d*)`)
+	matches := re.FindStringSubmatch(text)
 	if len(matches) >= 2 {
-		return strings.ReplaceAll(matches[1], ",", "")
+		val := strings.ReplaceAll(matches[1], ",", "")
+		if v, err := strconv.ParseFloat(val, 64); err == nil && v > 100 && v < 50000000 {
+			return fmt.Sprintf("%.2f", v)
+		}
 	}
-	re2 := regexp.MustCompile(`拨付金额[：:]\s*([\d,]+\.?\d*)`)
-	matches2 := re2.FindStringSubmatch(doc.Text())
+	re2 := regexp.MustCompile(`拨付金额[：:]?\s*([\d,]+\.?\d*)`)
+	matches2 := re2.FindStringSubmatch(text)
 	if len(matches2) >= 2 {
-		return strings.ReplaceAll(matches2[1], ",", "")
+		val := strings.ReplaceAll(matches2[1], ",", "")
+		if v, err := strconv.ParseFloat(val, 64); err == nil && v > 100 && v < 50000000 {
+			return fmt.Sprintf("%.2f", v)
+		}
+	}
+	re3 := regexp.MustCompile(`[￥¥][：:]?\s*([\d,]+\.?\d*)`)
+	matches3 := re3.FindStringSubmatch(text)
+	if len(matches3) >= 2 {
+		val := strings.ReplaceAll(matches3[1], ",", "")
+		if v, err := strconv.ParseFloat(val, 64); err == nil && v > 100 && v < 50000000 {
+			return fmt.Sprintf("%.2f", v)
+		}
+	}
+	start := strings.Index(text, "维修资金列支金额")
+	if start >= 0 {
+		section := text[start:]
+		end := strings.Index(section, "公示时间")
+		if end > 0 {
+			section = section[:end]
+		}
+		reAll := regexp.MustCompile(`(\d+\.?\d*)`)
+		allNums := reAll.FindAllStringSubmatch(section, -1)
+		var sum float64
+		for _, m := range allNums {
+			v, err := strconv.ParseFloat(m[1], 64)
+			if err == nil && v > 100 && v < 50000000 {
+				sum += v
+			}
+		}
+		if sum > 0 {
+			return fmt.Sprintf("%.2f", sum)
+		}
 	}
 	return ""
 }
