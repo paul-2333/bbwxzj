@@ -5,21 +5,28 @@
 ## 功能
 
 - 自动爬取 371 页公示列表，获取每篇文章详情
-- 从正文 HTML 表格中提取金额（"拨付金额"列汇总）
+- 从正文 HTML 表格中提取金额（"拨付金额"列汇总），无表格时从文本提取
 - 去重：已入库文章自动跳过
-- Web 查询页面：搜索、排序（标题/日期/金额）、分页、点击查看详情
+- Web 查询页面：搜索、排序（标题/金额/日期）、分页（20/50/100 条）、页码跳转、点击查看详情
 
 ## 用法
 
 ```bash
 go build -o crawler .
 
-./crawler                  # 爬取数据（默认数据库 ./bengbu_wxjj.db）
-./crawler -server          # 启动 Web 查询页面 http://localhost:8080
+./crawler                  # 启动 Web 服务 + 后台爬取（默认数据库 ./bengbu_wxjj.db）
+./crawler -server          # 仅启动 Web 服务（不爬取）
+./crawler -once            # 仅爬取一次（不启动 Web）
 
 DB_PATH=/path/to/db ./crawler          # 指定数据库路径
 PORT=9090 ./crawler -server            # 指定端口
 ```
+
+## 爬取策略
+
+- 首次运行：全量爬取 371 页
+- 已有数据后：每次只爬前 3 页，检查是否有新公示
+- 每小时自动重复一轮
 
 ## 依赖
 
