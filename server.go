@@ -542,7 +542,7 @@ func handleSubscribe(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "邮箱和小区名称不能为空"})
 		return
 	}
-	_, err := db.Exec("INSERT OR IGNORE INTO subscriptions (email, community) VALUES (?, ?)", req.Email, req.Community)
+	_, err := db.Exec("INSERT OR IGNORE INTO subscriptions (email, community, unsub_token) VALUES (?, ?, ?)", req.Email, req.Community, genToken())
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
@@ -551,45 +551,23 @@ func handleSubscribe(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 }
 
 func handleUnsubscribe(db *sql.DB, w http.ResponseWriter, r *http.Request) {
-	idStr := r.URL.Query().Get("id")
-	email := r.URL.Query().Get("email")
-	if idStr == "" || email == "" {
+	token := r.URL.Query().Get("token")
+	if token == "" {
 		w.Header().Set("Content-Type", "application/json")
-		var req struct {
-			ID    int    `json:"id"`
-			Email string `json:"email"`
-		}
-		json.NewDecoder(r.Body).Decode(&req)
-		idStr = strconv.Itoa(req.ID)
-		email = req.Email
-	}
-	id, err := strconv.Atoi(idStr)
-	if err != nil || email == "" {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"error": "参数错误"})
+		json.NewEncoder(w).Encode(map[string]string{"error": "缺少 token"})
 		return
 	}
 	var storedEmail string
-	err = db.QueryRow("SELECT email FROM subscriptions WHERE id = ?", id).Scan(&storedEmail)
+	err := db.QueryRow("SELECT email FROM subscriptions WHERE unsub_token = ?", token).Scan(&storedEmail)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"error": "订阅不存在或已取消"})
-		return
-	}
-	if storedEmail != email {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"error": "邮箱不匹配，无法取消"})
-		return
-	}
-	db.Exec("DELETE FROM subscriptions WHERE id = ?", id)
-
-	if r.URL.Query().Get("id") != "" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(w, `<!DOCTYPE html><html><meta charset="utf-8"><title>取消订阅</title><body style="font-family:sans-serif;text-align:center;padding:60px 20px"><h2 style="color:#0d904f">已成功取消订阅</h2><p style="color:#888;margin-top:12px">你将不再收到 %s 相关的维修资金拨付通知</p><p style="margin-top:32px"><a href="/" style="color:#1a73e8">返回查询页面</a></p></body></html>`, storedEmail)
+		fmt.Fprint(w, `<!DOCTYPE html><html><meta charset="utf-8"><title>取消订阅</title><body style="font-family:sans-serif;text-align:center;padding:60px 20px"><h2 style="color:#888">无效链接</h2><p style="color:#888;margin-top:12px">该链接已失效或订阅不存在</p></body></html>`)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"ok": "success"})
+	db.Exec("DELETE FROM subscriptions WHERE unsub_token = ?", token)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!DOCTYPE html><html><meta charset="utf-8"><title>取消订阅</title><body style="font-family:sans-serif;text-align:center;padding:60px 20px"><h2 style="color:#0d904f">已成功取消订阅</h2><p style="color:#888;margin-top:12px">你将不再收到 %s 相关的维修资金拨付通知</p><p style="margin-top:32px"><a href="/" style="color:#1a73e8">返回查询页面</a></p></body></html>`, storedEmail)
 }
 
 func handleSubscriptions(db *sql.DB, w http.ResponseWriter, r *http.Request) {

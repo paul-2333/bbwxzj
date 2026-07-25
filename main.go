@@ -1,16 +1,18 @@
 package main
 
 import (
+	"crypto/rand"
 	"crypto/tls"
 	"database/sql"
+	"encoding/hex"
 	"flag"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"net/smtp"
-	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -409,15 +411,24 @@ func insertArticle(db *sql.DB, article Article) {
 }
 
 func createSubscriptionsTable(db *sql.DB) {
-	query := `CREATE TABLE IF NOT EXISTS subscriptions (
+	db.Exec(`CREATE TABLE IF NOT EXISTS subscriptions (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		email TEXT NOT NULL,
 		community TEXT NOT NULL,
+		unsub_token TEXT NOT NULL DEFAULT '',
 		last_article_id INTEGER DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		UNIQUE(email, community)
-	)`
-	db.Exec(query)
+	)`)
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_unsub_token ON subscriptions(unsub_token)")
+	db.Exec("ALTER TABLE subscriptions ADD COLUMN unsub_token TEXT NOT NULL DEFAULT ''")
+	db.Exec("UPDATE subscriptions SET unsub_token = hex(randomblob(16)) WHERE unsub_token = ''")
+}
+
+func genToken() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
 }
 
 func sendMail(to, subject, htmlBody string) error {
@@ -470,37 +481,37 @@ func notifySubscribers(db *sql.DB) {
 	if maxID == 0 {
 		return
 	}
-	rows, err := db.Query("SELECT id, email, community, last_article_id FROM subscriptions")
+	rows, err := db.Query("SELECT id, email, community, unsub_token, last_article_id FROM subscriptions")
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var subID, lastID int
-		var email, community string
-		rows.Scan(&subID, &email, &community, &lastID)
+		var email, community, token string
+		rows.Scan(&subID, &email, &community, &token, &lastID)
 		if maxID <= lastID {
 			continue
 		}
 		articleRows, err := db.Query(
-			"SELECT id, title, amount, url FROM articles WHERE id > ? AND id <= ? AND title LIKE ? ORDER BY id",
-			lastID, maxID, "%"+community+"%")
+				"SELECT id, title, amount, url, content FROM articles WHERE id > ? AND id <= ? AND title LIKE ? ORDER BY id",
+				lastID, maxID, "%"+community+"%")
 		if err != nil {
 			continue
 		}
-		var matches []struct{ id int; title, amount, url string }
+		var matches []struct{ id int; title, amount, url, content string }
 		for articleRows.Next() {
-			var m struct{ id int; title, amount, url string }
-			articleRows.Scan(&m.id, &m.title, &m.amount, &m.url)
+			var m struct{ id int; title, amount, url, content string }
+			articleRows.Scan(&m.id, &m.title, &m.amount, &m.url, &m.content)
 			matches = append(matches, m)
 		}
 		articleRows.Close()
 		for _, a := range matches {
 			subject := fmt.Sprintf("【维修资金拨付】%s", a.title)
-			unsubURL := fmt.Sprintf("%s/api/unsubscribe?id=%d&email=%s", baseURL, subID, url.QueryEscape(email))
+			unsubURL := fmt.Sprintf("%s/api/unsubscribe?token=%s", baseURL, token)
 			body := fmt.Sprintf(
-				"<h2>%s</h2><p><strong>金额：</strong>%s 元</p><p><strong>原文：</strong><a href=\"%s\">%s</a></p><hr><p style=\"color:#888;font-size:12px\"><a href=\"%s\">取消订阅</a> | 由蚌埠市住建局爬虫自动发送</p>",
-				a.title, a.amount, a.url, a.url, unsubURL)
+				"<h2>%s</h2><p><strong>金额：</strong>%s 元</p><pre style=\"font-size:14px;line-height:1.8;white-space:pre-wrap;background:#f5f5f5;padding:16px;border-radius:8px\">%s</pre><p><a href=\"%s\" style=\"color:#1a73e8\">查看原文 →</a></p><hr><p style=\"color:#888;font-size:12px\"><a href=\"%s\">取消订阅</a></p>",
+				html.EscapeString(a.title), html.EscapeString(a.amount), html.EscapeString(a.content), a.url, unsubURL)
 			log.Printf("Sending email to %s for article %d", email, a.id)
 			if err := sendMail(email, subject, body); err != nil {
 				log.Printf("Email error to %s: %v", email, err)
