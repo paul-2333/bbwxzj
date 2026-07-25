@@ -506,17 +506,28 @@ func notifySubscribers(db *sql.DB) {
 			matches = append(matches, m)
 		}
 		articleRows.Close()
+		if len(matches) == 0 {
+			db.Exec("UPDATE subscriptions SET last_article_id = ? WHERE id = ?", maxID, subID)
+			continue
+		}
+		unsubURL := fmt.Sprintf("%s/api/unsubscribe?token=%s", baseURL, token)
+		var subject string
+		if len(matches) == 1 {
+			subject = fmt.Sprintf("【维修资金拨付】%s", matches[0].title)
+		} else {
+			subject = fmt.Sprintf("【维修资金拨付】%s 等 %d 条新公示", community, len(matches))
+		}
+		var parts []string
 		for _, a := range matches {
-			subject := fmt.Sprintf("【维修资金拨付】%s", a.title)
-			unsubURL := fmt.Sprintf("%s/api/unsubscribe?token=%s", baseURL, token)
-			body := fmt.Sprintf(
-				"<h2>%s</h2><p><strong>金额：</strong>%s 元</p><pre style=\"font-size:14px;line-height:1.8;white-space:pre-wrap;background:#f5f5f5;padding:16px;border-radius:8px\">%s</pre><p><a href=\"%s\" style=\"color:#1a73e8\">查看原文 →</a></p><hr><p style=\"color:#888;font-size:12px\"><a href=\"%s\">取消订阅</a></p>",
-				html.EscapeString(a.title), html.EscapeString(a.amount), html.EscapeString(a.content), a.url, unsubURL)
-			log.Printf("Sending email to %s for article %d", email, a.id)
-			if err := sendMail(email, subject, body); err != nil {
-				log.Printf("Email error to %s: %v", email, err)
-			}
-			time.Sleep(3 * time.Second)
+			parts = append(parts, fmt.Sprintf(
+				"<h2>%s</h2><p><strong>金额：</strong>%s 元</p><pre style=\"font-size:14px;line-height:1.8;white-space:pre-wrap;background:#f5f5f5;padding:16px;border-radius:8px\">%s</pre><p><a href=\"%s\" style=\"color:#1a73e8\">查看原文 →</a></p>",
+				html.EscapeString(a.title), html.EscapeString(a.amount), html.EscapeString(a.content), a.url))
+		}
+		parts = append(parts, fmt.Sprintf("<hr><p style=\"color:#888;font-size:12px\"><a href=\"%s\">取消订阅</a></p>", unsubURL))
+		body := strings.Join(parts, "\n<hr>\n")
+		log.Printf("Sending email to %s for %d articles", email, len(matches))
+		if err := sendMail(email, subject, body); err != nil {
+			log.Printf("Email error to %s: %v", email, err)
 		}
 		db.Exec("UPDATE subscriptions SET last_article_id = ? WHERE id = ?", maxID, subID)
 	}
