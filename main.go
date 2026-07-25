@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/smtp"
+	"net/url"
 	"os"
 	"regexp"
 	"strconv"
@@ -22,6 +24,7 @@ import (
 var (
 	smtpEmail = getEnv("SMTP_EMAIL", "1098703551@qq.com")
 	smtpPass  = getEnv("SMTP_PASS", "hrhllcunoioggaej")
+	baseURL   = getEnv("BASE_URL", "http://localhost:8080")
 )
 
 type Article struct {
@@ -418,8 +421,8 @@ func createSubscriptionsTable(db *sql.DB) {
 }
 
 func sendMail(to, subject, htmlBody string) error {
-	tlsConfig := &tls.Config{ServerName: "smtp.qq.com"}
-	conn, err := tls.Dial("tcp", "smtp.qq.com:465", tlsConfig)
+	dialer := &net.Dialer{Timeout: 10 * time.Second}
+	conn, err := tls.DialWithDialer(dialer, "tcp", "smtp.qq.com:465", &tls.Config{ServerName: "smtp.qq.com"})
 	if err != nil {
 		return fmt.Errorf("tls dial: %v", err)
 	}
@@ -456,6 +459,12 @@ func sendMail(to, subject, htmlBody string) error {
 }
 
 func notifySubscribers(db *sql.DB) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("notifySubscribers panic: %v", r)
+		}
+	}()
+
 	var maxID int
 	db.QueryRow("SELECT COALESCE(MAX(id), 0) FROM articles").Scan(&maxID)
 	if maxID == 0 {
@@ -488,14 +497,15 @@ func notifySubscribers(db *sql.DB) {
 		articleRows.Close()
 		for _, a := range matches {
 			subject := fmt.Sprintf("【维修资金拨付】%s", a.title)
+			unsubURL := fmt.Sprintf("%s/api/unsubscribe?id=%d&email=%s", baseURL, subID, url.QueryEscape(email))
 			body := fmt.Sprintf(
-				"<h2>%s</h2><p><strong>金额：</strong>%s 元</p><p><strong>原文：</strong><a href=\"%s\">%s</a></p><hr><p style=\"color:#888;font-size:12px\">由蚌埠市住建局爬虫自动发送</p>",
-				a.title, a.amount, a.url, a.url)
+				"<h2>%s</h2><p><strong>金额：</strong>%s 元</p><p><strong>原文：</strong><a href=\"%s\">%s</a></p><hr><p style=\"color:#888;font-size:12px\"><a href=\"%s\">取消订阅</a> | 由蚌埠市住建局爬虫自动发送</p>",
+				a.title, a.amount, a.url, a.url, unsubURL)
 			log.Printf("Sending email to %s for article %d", email, a.id)
 			if err := sendMail(email, subject, body); err != nil {
 				log.Printf("Email error to %s: %v", email, err)
 			}
-			time.Sleep(2 * time.Second)
+			time.Sleep(3 * time.Second)
 		}
 		db.Exec("UPDATE subscriptions SET last_article_id = ? WHERE id = ?", maxID, subID)
 	}

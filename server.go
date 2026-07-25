@@ -367,20 +367,8 @@ function loadSubscriptions() {
     if (!list.length) { el.innerHTML = ''; return; }
     el.innerHTML = '已订阅：' + list.map(s =>
       '<span style="display:inline-block;background:#e8f0fe;padding:3px 10px;border-radius:4px;margin:3px;font-size:12px">' +
-      esc(s.email) + ' - ' + esc(s.community) +
-      ' <a href="javascript:unsub(' + s.id + ',\'' + esc(s.email) + '\')" style="color:#e74c3c;text-decoration:none;margin-left:4px">✕</a></span>'
+      esc(s.email) + ' - ' + esc(s.community) + '</span>'
     ).join('');
-  });
-}
-
-function unsub(id, email) {
-  fetch('/api/unsubscribe', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({id, email})
-  }).then(r => r.json()).then(d => {
-    if (d.error) subMsg(d.error, '#e74c3c');
-    else { subMsg('已取消订阅', '#0d904f'); loadSubscriptions(); }
   });
 }
 
@@ -563,27 +551,44 @@ func handleSubscribe(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 }
 
 func handleUnsubscribe(db *sql.DB, w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	var req struct {
-		ID    int    `json:"id"`
-		Email string `json:"email"`
+	idStr := r.URL.Query().Get("id")
+	email := r.URL.Query().Get("email")
+	if idStr == "" || email == "" {
+		w.Header().Set("Content-Type", "application/json")
+		var req struct {
+			ID    int    `json:"id"`
+			Email string `json:"email"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		idStr = strconv.Itoa(req.ID)
+		email = req.Email
 	}
-	json.NewDecoder(r.Body).Decode(&req)
-	if req.ID == 0 || req.Email == "" {
+	id, err := strconv.Atoi(idStr)
+	if err != nil || email == "" {
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"error": "参数错误"})
 		return
 	}
 	var storedEmail string
-	err := db.QueryRow("SELECT email FROM subscriptions WHERE id = ?", req.ID).Scan(&storedEmail)
+	err = db.QueryRow("SELECT email FROM subscriptions WHERE id = ?", id).Scan(&storedEmail)
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": "订阅不存在"})
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "订阅不存在或已取消"})
 		return
 	}
-	if storedEmail != req.Email {
+	if storedEmail != email {
+		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"error": "邮箱不匹配，无法取消"})
 		return
 	}
-	db.Exec("DELETE FROM subscriptions WHERE id = ?", req.ID)
+	db.Exec("DELETE FROM subscriptions WHERE id = ?", id)
+
+	if r.URL.Query().Get("id") != "" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprintf(w, `<!DOCTYPE html><html><meta charset="utf-8"><title>取消订阅</title><body style="font-family:sans-serif;text-align:center;padding:60px 20px"><h2 style="color:#0d904f">已成功取消订阅</h2><p style="color:#888;margin-top:12px">你将不再收到 %s 相关的维修资金拨付通知</p><p style="margin-top:32px"><a href="/" style="color:#1a73e8">返回查询页面</a></p></body></html>`, storedEmail)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"ok": "success"})
 }
 
