@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 var (
@@ -44,7 +44,7 @@ func main() {
 
 	dbPath := getEnv("DB_PATH", "./bengbu_wxjj.db")
 
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
 	}
@@ -517,7 +517,7 @@ func notifySubscribers(db *sql.DB) {
 			continue
 		}
 		articleRows, err := db.Query(
-				"SELECT id, title, amount, url, content, publish_date FROM articles WHERE id > ? AND id <= ? AND title LIKE ? ORDER BY publish_date DESC",
+				"SELECT id, title, amount, url, content FROM articles WHERE id > ? AND id <= ? AND title LIKE ? ORDER BY publish_date DESC",
 				lastID, maxID, "%"+community+"%")
 		if err != nil {
 			continue

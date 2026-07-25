@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 type ArticleRow struct {
@@ -389,7 +389,7 @@ function subMsg(text, color) {
 </html>`
 
 func startServer(db *sql.DB) {
-	port := getEnv("PORT", "8080")
+	port := getEnv("PORT", "20173")
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
