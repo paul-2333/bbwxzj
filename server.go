@@ -145,8 +145,8 @@ tr:nth-child(even):hover{background:#f5f8ff}
       <thead>
         <tr>
           <th onclick="sortBy('title')">标题 <span class="sort-arrow">{{if eq .Sort "title"}}{{if eq .Order "asc"}}▲{{else}}▼{{end}}{{else}}▽{{end}}</span></th>
-          <th onclick="sortBy('amount')">金额 <span class="sort-arrow">{{if eq .Sort "amount"}}{{if eq .Order "asc"}}▲{{else}}▼{{end}}{{else}}▽{{end}}</span></th>
           <th onclick="sortBy('publish_date')">日期 <span class="sort-arrow">{{if eq .Sort "publish_date"}}{{if eq .Order "asc"}}▲{{else}}▼{{end}}{{else}}▽{{end}}</span></th>
+          <th onclick="sortBy('amount')">金额 <span class="sort-arrow">{{if eq .Sort "amount"}}{{if eq .Order "asc"}}▲{{else}}▼{{end}}{{else}}▽{{end}}</span></th>
         </tr>
       </thead>
       <tbody id="tableBody"></tbody>
@@ -188,8 +188,8 @@ tr:nth-child(even):hover{background:#f5f8ff}
     <h3 style="margin-bottom:4px;font-size:16px">邮件订阅</h3>
     <p style="font-size:13px;color:#888;margin-bottom:12px">输入小区名称，新文章发布时自动发送到你的邮箱</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <input type="email" id="subEmail" placeholder="你的邮箱地址" style="padding:8px 14px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;flex:1;min-width:200px">
-      <input type="text" id="subCommunity" placeholder="小区名称（如：绿地世纪城）" style="padding:8px 14px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;flex:1;min-width:200px">
+      <input type="email" id="subEmail" placeholder="你的邮箱地址" maxlength="30" style="padding:8px 14px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;flex:1;min-width:200px">
+      <input type="text" id="subCommunity" placeholder="小区名称（如：绿地世纪城）" maxlength="30" style="padding:8px 14px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;flex:1;min-width:200px">
       <button class="btn" onclick="subscribe()">订阅</button>
     </div>
     <div id="subList" style="margin-top:10px;font-size:13px"></div>
@@ -268,8 +268,8 @@ function renderTable(articles) {
     const amt = a.amount ? '<span class="amount">' + Number(a.amount).toLocaleString() + ' 元</span>' : '<span class="amount empty">-</span>';
     return '<tr>' +
       '<td><a class="title-link" href="javascript:void(0)" onclick="showDetail(' + a.id + ')">' + esc(a.title) + '</a></td>' +
-      '<td>' + amt + '</td>' +
       '<td class="date">' + esc(a.publishDate) + '</td>' +
+      '<td>' + amt + '</td>' +
     '</tr>';
   }).join('');
 }
@@ -328,6 +328,11 @@ function esc(s) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+  var q = new URLSearchParams(location.search).get('q');
+  if (q) {
+    currentQuery = q;
+    document.getElementById('searchInput').value = q;
+  }
   document.getElementById('searchInput').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') search();
   });
@@ -351,6 +356,8 @@ function subscribe() {
   const email = document.getElementById('subEmail').value.trim();
   const community = document.getElementById('subCommunity').value.trim();
   if (!email || !community) { subMsg('请填写邮箱和小区名称', '#e74c3c'); return; }
+  if (email.length > 30) { subMsg('邮箱地址不能超过30个字符', '#e74c3c'); return; }
+  if (community.length > 30) { subMsg('小区名称不能超过30个字符', '#e74c3c'); return; }
   fetch('/api/subscribe', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -367,7 +374,7 @@ function loadSubscriptions() {
     if (!list.length) { el.innerHTML = ''; return; }
     el.innerHTML = '已订阅：' + list.map(s =>
       '<span style="display:inline-block;background:#e8f0fe;padding:3px 10px;border-radius:4px;margin:3px;font-size:12px">' +
-      esc(s.email) + ' - ' + esc(s.community) + '</span>'
+      esc(s.email) + ' - <a href="/?q=' + encodeURIComponent(s.community) + '" style="color:#1a73e8;text-decoration:none">' + esc(s.community) + '</a></span>'
     ).join('');
   });
 }
@@ -395,11 +402,13 @@ func startServer(db *sql.DB) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
+		query := r.URL.Query().Get("q")
 		tmpl.Execute(w, PageData{
 			Page:    1,
 			PerPage: 20,
 			Sort:    "publish_date",
 			Order:   "desc",
+			Query:   query,
 		})
 	})
 
@@ -467,8 +476,16 @@ func handleArticlesAPI(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	var stats Stats
 	countQuery := "SELECT COUNT(*) FROM articles " + where
 	db.QueryRow(countQuery, args...).Scan(&stats.Total)
-	db.QueryRow("SELECT COUNT(*) FROM articles WHERE amount != ''").Scan(&stats.WithAmount)
-	db.QueryRow("SELECT COALESCE(SUM(CAST(amount AS REAL)), 0) FROM articles WHERE amount != ''").Scan(&stats.TotalAmount)
+
+	amountWhere := ""
+	amountArgs := args
+	if query != "" {
+		amountWhere = where + " AND amount != ''"
+	} else {
+		amountWhere = "WHERE amount != ''"
+	}
+	db.QueryRow("SELECT COUNT(*) FROM articles "+amountWhere, amountArgs...).Scan(&stats.WithAmount)
+	db.QueryRow("SELECT COALESCE(SUM(CAST(amount AS REAL)), 0) FROM articles "+amountWhere, amountArgs...).Scan(&stats.TotalAmount)
 
 	offset := (page - 1) * perPage
 	dataQuery := fmt.Sprintf("SELECT id, title, publish_date, amount, content, url FROM articles %s ORDER BY %s %s LIMIT ? OFFSET ?", where, sortCol, order)
@@ -542,10 +559,31 @@ func handleSubscribe(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "邮箱和小区名称不能为空"})
 		return
 	}
-	_, err := db.Exec("INSERT OR IGNORE INTO subscriptions (email, community, unsub_token) VALUES (?, ?, ?)", req.Email, req.Community, genToken())
+	if len(req.Email) > 30 {
+		json.NewEncoder(w).Encode(map[string]string{"error": "邮箱地址不能超过30个字符"})
+		return
+	}
+	if len(req.Community) > 30 {
+		json.NewEncoder(w).Encode(map[string]string{"error": "小区名称不能超过30个字符"})
+		return
+	}
+	if hasSensitiveWord(req.Email) || hasSensitiveWord(req.Community) {
+		json.NewEncoder(w).Encode(map[string]string{"error": "输入包含敏感词，请重新填写"})
+		return
+	}
+	token := genToken()
+	res, err := db.Exec("UPDATE subscriptions SET unsubscribed_at = NULL, unsub_token = ?, last_article_id = 0 WHERE email = ? AND community = ?", token, req.Email, req.Community)
 	if err != nil {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		_, err = db.Exec("INSERT INTO subscriptions (email, community, unsub_token) VALUES (?, ?, ?)", req.Email, req.Community, token)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
 	}
 	json.NewEncoder(w).Encode(map[string]string{"ok": "success"})
 }
@@ -564,7 +602,7 @@ func handleUnsubscribe(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `<!DOCTYPE html><html><meta charset="utf-8"><title>取消订阅</title><body style="font-family:sans-serif;text-align:center;padding:60px 20px"><h2 style="color:#888">无效链接</h2><p style="color:#888;margin-top:12px">该链接已失效或订阅不存在</p></body></html>`)
 		return
 	}
-	db.Exec("DELETE FROM subscriptions WHERE unsub_token = ?", token)
+	db.Exec("UPDATE subscriptions SET unsubscribed_at = CURRENT_TIMESTAMP WHERE unsub_token = ?", token)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	fmt.Fprintf(w, `<!DOCTYPE html><html><meta charset="utf-8"><title>取消订阅</title><body style="font-family:sans-serif;text-align:center;padding:60px 20px"><h2 style="color:#0d904f">已成功取消订阅</h2><p style="color:#888;margin-top:12px">你将不再收到 %s 相关的维修资金拨付通知</p><p style="margin-top:32px"><a href="/" style="color:#1a73e8">返回查询页面</a></p></body></html>`, storedEmail)
@@ -572,7 +610,7 @@ func handleUnsubscribe(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 
 func handleSubscriptions(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	rows, err := db.Query("SELECT id, email, community, created_at FROM subscriptions ORDER BY id")
+	rows, err := db.Query("SELECT id, email, community, created_at FROM subscriptions WHERE unsubscribed_at IS NULL ORDER BY id")
 	if err != nil {
 		json.NewEncoder(w).Encode([]struct{}{})
 		return

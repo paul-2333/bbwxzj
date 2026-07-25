@@ -26,7 +26,7 @@ import (
 var (
 	smtpEmail = getEnv("SMTP_EMAIL", "1098703551@qq.com")
 	smtpPass  = getEnv("SMTP_PASS", "hrhllcunoioggaej")
-	baseURL   = getEnv("BASE_URL", "http://localhost:8080")
+	baseURL   = getEnv("BASE_URL", "https://wxzj.dirac.eu.org")
 )
 
 type Article struct {
@@ -418,11 +418,34 @@ func createSubscriptionsTable(db *sql.DB) {
 		unsub_token TEXT NOT NULL DEFAULT '',
 		last_article_id INTEGER DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		unsubscribed_at DATETIME,
 		UNIQUE(email, community)
 	)`)
 	db.Exec("CREATE INDEX IF NOT EXISTS idx_unsub_token ON subscriptions(unsub_token)")
 	db.Exec("ALTER TABLE subscriptions ADD COLUMN unsub_token TEXT NOT NULL DEFAULT ''")
 	db.Exec("UPDATE subscriptions SET unsub_token = hex(randomblob(16)) WHERE unsub_token = ''")
+	db.Exec("ALTER TABLE subscriptions ADD COLUMN unsubscribed_at DATETIME")
+}
+
+var sensitiveWords = []string{
+	"法轮功", "退党", "六四", "天安门事件", "枪支", "毒品", "赌博",
+	"色情", "AV", "裸聊", "一夜情", "招嫖", "迷奸", "催情",
+	"发票", "代开发票", "办证", "代办", "信用卡套现",
+	"赌博平台", "棋牌", "真人娱乐", "百家乐", "轮盘",
+	"刷单", "刷信誉", "兼职日结", "日赚",
+	"出售手枪", "出售枪支", "迷药", "窃听",
+	"反动", "暴力", "恐怖",
+	"习近平",
+}
+
+func hasSensitiveWord(s string) bool {
+	lower := strings.ToLower(s)
+	for _, w := range sensitiveWords {
+		if strings.Contains(lower, strings.ToLower(w)) {
+			return true
+		}
+	}
+	return false
 }
 
 func genToken() string {
@@ -481,7 +504,7 @@ func notifySubscribers(db *sql.DB) {
 	if maxID == 0 {
 		return
 	}
-	rows, err := db.Query("SELECT id, email, community, unsub_token, last_article_id FROM subscriptions")
+	rows, err := db.Query("SELECT id, email, community, unsub_token, last_article_id FROM subscriptions WHERE unsubscribed_at IS NULL")
 	if err != nil {
 		return
 	}
@@ -494,7 +517,7 @@ func notifySubscribers(db *sql.DB) {
 			continue
 		}
 		articleRows, err := db.Query(
-				"SELECT id, title, amount, url, content FROM articles WHERE id > ? AND id <= ? AND title LIKE ? ORDER BY id",
+				"SELECT id, title, amount, url, content, publish_date FROM articles WHERE id > ? AND id <= ? AND title LIKE ? ORDER BY publish_date DESC",
 				lastID, maxID, "%"+community+"%")
 		if err != nil {
 			continue
