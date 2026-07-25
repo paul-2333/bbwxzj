@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -179,6 +180,20 @@ tr:nth-child(even):hover{background:#f5f8ff}
       <span id="modalAmount"></span>
     </div>
     <div class="modal-body" id="modalBody"></div>
+	</div>
+</div>
+
+<div class="container" style="margin-top:20px">
+  <div style="background:#fff;border-radius:10px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+    <h3 style="margin-bottom:4px;font-size:16px">邮件订阅</h3>
+    <p style="font-size:13px;color:#888;margin-bottom:12px">输入小区名称，新文章发布时自动发送到你的邮箱</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <input type="email" id="subEmail" placeholder="你的邮箱地址" style="padding:8px 14px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;flex:1;min-width:200px">
+      <input type="text" id="subCommunity" placeholder="小区名称（如：绿地世纪城）" style="padding:8px 14px;border:1px solid #d0d5dd;border-radius:6px;font-size:14px;flex:1;min-width:200px">
+      <button class="btn" onclick="subscribe()">订阅</button>
+    </div>
+    <div id="subList" style="margin-top:10px;font-size:13px"></div>
+    <div id="subMsg" style="margin-top:6px;font-size:13px"></div>
   </div>
 </div>
 
@@ -329,7 +344,46 @@ document.addEventListener('DOMContentLoaded', function() {
     if (e.key === 'Enter') goPage(parseInt(this.value) || 1);
   });
   loadData();
+  loadSubscriptions();
 });
+
+function subscribe() {
+  const email = document.getElementById('subEmail').value.trim();
+  const community = document.getElementById('subCommunity').value.trim();
+  if (!email || !community) { subMsg('请填写邮箱和小区名称', '#e74c3c'); return; }
+  fetch('/api/subscribe', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({email, community})
+  }).then(r => r.json()).then(d => {
+    if (d.error) subMsg(d.error, '#e74c3c');
+    else { subMsg('订阅成功', '#0d904f'); document.getElementById('subEmail').value=''; document.getElementById('subCommunity').value=''; loadSubscriptions(); }
+  });
+}
+
+function loadSubscriptions() {
+  fetch('/api/subscriptions').then(r => r.json()).then(list => {
+    const el = document.getElementById('subList');
+    if (!list.length) { el.innerHTML = ''; return; }
+    el.innerHTML = '已订阅：' + list.map(s =>
+      '<span style="display:inline-block;background:#e8f0fe;padding:3px 10px;border-radius:4px;margin:3px;font-size:12px">' +
+      esc(s.email) + ' - ' + esc(s.community) +
+      ' <a href="javascript:unsub(' + s.id + ')" style="color:#e74c3c;text-decoration:none;margin-left:4px">✕</a></span>'
+    ).join('');
+  });
+}
+
+function unsub(id) {
+  fetch('/api/unsubscribe?id=' + id, {method: 'POST'}).then(r => r.json()).then(d => {
+    subMsg('已取消订阅', '#0d904f'); loadSubscriptions();
+  });
+}
+
+function subMsg(text, color) {
+  const el = document.getElementById('subMsg');
+  el.textContent = text; el.style.color = color;
+  setTimeout(() => el.textContent = '', 4000);
+}
 </script>
 </body>
 </html>`
@@ -362,6 +416,18 @@ func startServer(db *sql.DB) {
 
 	mux.HandleFunc("/api/article", func(w http.ResponseWriter, r *http.Request) {
 		handleArticleDetail(db, w, r)
+	})
+
+	mux.HandleFunc("/api/subscribe", func(w http.ResponseWriter, r *http.Request) {
+		handleSubscribe(db, w, r)
+	})
+
+	mux.HandleFunc("/api/unsubscribe", func(w http.ResponseWriter, r *http.Request) {
+		handleUnsubscribe(db, w, r)
+	})
+
+	mux.HandleFunc("/api/subscriptions", func(w http.ResponseWriter, r *http.Request) {
+		handleSubscriptions(db, w, r)
 	})
 
 	log.Printf("启动服务器 http://localhost:%s", port)
@@ -468,4 +534,63 @@ func handleArticleDetail(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	a.CreatedAt = createdAt.String
 
 	json.NewEncoder(w).Encode(a)
+}
+
+func handleSubscribe(db *sql.DB, w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req struct {
+		Email     string `json:"email"`
+		Community string `json:"community"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	req.Email = strings.TrimSpace(req.Email)
+	req.Community = strings.TrimSpace(req.Community)
+	if req.Email == "" || req.Community == "" {
+		json.NewEncoder(w).Encode(map[string]string{"error": "邮箱和小区名称不能为空"})
+		return
+	}
+	_, err := db.Exec("INSERT OR IGNORE INTO subscriptions (email, community) VALUES (?, ?)", req.Email, req.Community)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]string{"ok": "success"})
+}
+
+func handleUnsubscribe(db *sql.DB, w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	idStr := r.URL.Query().Get("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid id"})
+		return
+	}
+	db.Exec("DELETE FROM subscriptions WHERE id = ?", id)
+	json.NewEncoder(w).Encode(map[string]string{"ok": "success"})
+}
+
+func handleSubscriptions(db *sql.DB, w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	rows, err := db.Query("SELECT id, email, community, created_at FROM subscriptions ORDER BY id")
+	if err != nil {
+		json.NewEncoder(w).Encode([]struct{}{})
+		return
+	}
+	defer rows.Close()
+	type Sub struct {
+		ID        int    `json:"id"`
+		Email     string `json:"email"`
+		Community string `json:"community"`
+		CreatedAt string `json:"createdAt"`
+	}
+	var list []Sub
+	for rows.Next() {
+		var s Sub
+		rows.Scan(&s.ID, &s.Email, &s.Community, &s.CreatedAt)
+		list = append(list, s)
+	}
+	if list == nil {
+		list = []Sub{}
+	}
+	json.NewEncoder(w).Encode(list)
 }

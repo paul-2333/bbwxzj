@@ -1,12 +1,14 @@
 package main
 
 import (
+	"crypto/tls"
 	"database/sql"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/smtp"
 	"os"
 	"regexp"
 	"strconv"
@@ -15,6 +17,11 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	_ "github.com/mattn/go-sqlite3"
+)
+
+var (
+	smtpEmail = getEnv("SMTP_EMAIL", "1098703551@qq.com")
+	smtpPass  = getEnv("SMTP_PASS", "hrhllcunoioggaej")
 )
 
 type Article struct {
@@ -39,6 +46,7 @@ func main() {
 	defer db.Close()
 
 	createTable(db)
+	createSubscriptionsTable(db)
 
 	if *serverMode {
 		startServer(db)
@@ -111,6 +119,7 @@ func crawlAll(db *sql.DB) {
 		time.Sleep(1500 * time.Millisecond)
 	}
 	log.Println("Crawler completed")
+	notifySubscribers(db)
 }
 
 func getEnv(key, fallback string) string {
@@ -393,5 +402,100 @@ func insertArticle(db *sql.DB, article Article) {
 	_, err := db.Exec(query, article.Title, article.URL, article.Date, article.Content, article.Amount)
 	if err != nil {
 		log.Printf("Error inserting article: %v", err)
+	}
+}
+
+func createSubscriptionsTable(db *sql.DB) {
+	query := `CREATE TABLE IF NOT EXISTS subscriptions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		email TEXT NOT NULL,
+		community TEXT NOT NULL,
+		last_article_id INTEGER DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(email, community)
+	)`
+	db.Exec(query)
+}
+
+func sendMail(to, subject, htmlBody string) error {
+	tlsConfig := &tls.Config{ServerName: "smtp.qq.com"}
+	conn, err := tls.Dial("tcp", "smtp.qq.com:465", tlsConfig)
+	if err != nil {
+		return fmt.Errorf("tls dial: %v", err)
+	}
+	defer conn.Close()
+	client, err := smtp.NewClient(conn, "smtp.qq.com")
+	if err != nil {
+		return fmt.Errorf("smtp client: %v", err)
+	}
+	defer client.Close()
+	auth := smtp.PlainAuth("", smtpEmail, smtpPass, "smtp.qq.com")
+	if err = client.Auth(auth); err != nil {
+		return fmt.Errorf("auth: %v", err)
+	}
+	if err = client.Mail(smtpEmail); err != nil {
+		return fmt.Errorf("mail from: %v", err)
+	}
+	if err = client.Rcpt(to); err != nil {
+		return fmt.Errorf("rcpt: %v", err)
+	}
+	w, err := client.Data()
+	if err != nil {
+		return fmt.Errorf("data: %v", err)
+	}
+	defer w.Close()
+	msg := "From: " + smtpEmail + "\r\n" +
+		"To: " + to + "\r\n" +
+		"Subject: " + subject + "\r\n" +
+		"MIME-Version: 1.0\r\n" +
+		"Content-Type: text/html; charset=UTF-8\r\n" +
+		"\r\n" +
+		htmlBody + "\r\n"
+	_, err = w.Write([]byte(msg))
+	return err
+}
+
+func notifySubscribers(db *sql.DB) {
+	var maxID int
+	db.QueryRow("SELECT COALESCE(MAX(id), 0) FROM articles").Scan(&maxID)
+	if maxID == 0 {
+		return
+	}
+	rows, err := db.Query("SELECT id, email, community, last_article_id FROM subscriptions")
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var subID, lastID int
+		var email, community string
+		rows.Scan(&subID, &email, &community, &lastID)
+		if maxID <= lastID {
+			continue
+		}
+		articleRows, err := db.Query(
+			"SELECT id, title, amount, url FROM articles WHERE id > ? AND id <= ? AND title LIKE ? ORDER BY id",
+			lastID, maxID, "%"+community+"%")
+		if err != nil {
+			continue
+		}
+		var matches []struct{ id int; title, amount, url string }
+		for articleRows.Next() {
+			var m struct{ id int; title, amount, url string }
+			articleRows.Scan(&m.id, &m.title, &m.amount, &m.url)
+			matches = append(matches, m)
+		}
+		articleRows.Close()
+		for _, a := range matches {
+			subject := fmt.Sprintf("【维修资金拨付】%s", a.title)
+			body := fmt.Sprintf(
+				"<h2>%s</h2><p><strong>金额：</strong>%s 元</p><p><strong>原文：</strong><a href=\"%s\">%s</a></p><hr><p style=\"color:#888;font-size:12px\">由蚌埠市住建局爬虫自动发送</p>",
+				a.title, a.amount, a.url, a.url)
+			log.Printf("Sending email to %s for article %d", email, a.id)
+			if err := sendMail(email, subject, body); err != nil {
+				log.Printf("Email error to %s: %v", email, err)
+			}
+		}
+		db.Exec("UPDATE subscriptions SET last_article_id = ? WHERE id = ?", maxID, subID)
 	}
 }
