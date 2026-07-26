@@ -176,7 +176,10 @@ func fetchListPage(client *http.Client, page int) ([]Article, error) {
 	var articles []Article
 	doc.Find("ul.doc_list li").Each(func(i int, s *goquery.Selection) {
 		link := s.Find("a")
-		title := strings.TrimSpace(link.Text())
+		title := strings.TrimSpace(link.AttrOr("title", ""))
+		if title == "" {
+			title = strings.TrimSpace(link.Text())
+		}
 		href, exists := link.Attr("href")
 		if !exists || href == "" {
 			return
