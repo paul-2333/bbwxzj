@@ -50,7 +50,7 @@ SMTP_EMAIL=xxx@qq.com SMTP_PASS=xxx ./crawler   # 自定义邮箱和授权码
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `SMTP_EMAIL` | QQ 邮箱地址 | `1098703551@qq.com` |
+| `SMTP_EMAIL` | QQ 邮箱地址 | `` |
 | `SMTP_PASS` | QQ 邮箱 SMTP 授权码 | `` |
 | `BASE_URL` | 取消订阅链接的基础 URL | `https://wxzj.dirac.eu.org` |
 
