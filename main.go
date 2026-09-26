@@ -553,8 +553,10 @@ func notifySubscribers(db *sql.DB) {
 		body := strings.Join(parts, "\n<hr>\n")
 		log.Printf("Sending email to %s for %d articles", email, len(matches))
 		if err := sendMail(email, subject, body); err != nil {
-			log.Printf("Email error to %s: %v", email, err)
+			log.Printf("Email error to %s: %v (last_article_id 保持 %d，下轮重试)", email, err, lastID)
+			continue
 		}
 		db.Exec("UPDATE subscriptions SET last_article_id = ? WHERE id = ?", maxID, subID)
+		log.Printf("Notified %s: %d articles, last_article_id → %d", email, len(matches), maxID)
 	}
 }
