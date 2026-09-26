@@ -34,6 +34,9 @@ crawler
 *.db
 *.db-wal
 *.db-shm
+
+# Log file
+*.log
 # Editor/IDE
 # .idea/
 # .vscode/

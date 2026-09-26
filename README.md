@@ -45,6 +45,7 @@ SMTP_EMAIL=xxx@qq.com SMTP_PASS=xxx ./crawler   # 自定义邮箱和授权码
 - 输入内容经过**敏感词过滤**后方可提交
 - 每封邮件包含匹配小区的多条新公示，附带取消订阅链接
 - 数据库记录唯一约束 `(email, community)`，重复订阅自动恢复并更新 token
+- 邮件发送失败时不推进 `last_article_id`，下一轮（6 小时后）自动重试
 
 环境变量：
 
