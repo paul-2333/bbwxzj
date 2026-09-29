@@ -24,7 +24,6 @@ type ArticleRow struct {
 
 type Stats struct {
 	Total       int     `json:"total"`
-	WithAmount  int     `json:"withAmount"`
 	TotalAmount float64 `json:"totalAmount"`
 }
 
@@ -152,7 +151,7 @@ tr:nth-child(even):hover{background:#f5f8ff}
 
 <div class="container">
   <div class="toolbar">
-    <input type="text" id="searchInput" placeholder="搜索标题、小区名、楼栋..." value="{{.Query}}">
+    <input type="text" id="searchInput" placeholder="搜索标题、小区名..." value="{{.Query}}">
     <select id="sortSelect">
       <option value="publish_date" {{if eq .Sort "publish_date"}}selected{{end}}>发布日期</option>
       <option value="amount" {{if eq .Sort "amount"}}selected{{end}}>金额</option>
@@ -278,7 +277,6 @@ function render(d) {
 function renderStats(s) {
   document.getElementById('statsBar').innerHTML = [
     '<div class="stat-card"><div class="label">公示总数</div><div class="value">' + s.total + '</div></div>',
-    '<div class="stat-card"><div class="label">含金额记录</div><div class="value green">' + s.withAmount + '</div></div>',
     '<div class="stat-card"><div class="label">总金额（元）</div><div class="value orange">' + s.totalAmount.toLocaleString() + '</div></div>'
   ].join('');
 }
@@ -509,7 +507,6 @@ func handleArticlesAPI(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 	} else {
 		amountWhere = "WHERE amount != ''"
 	}
-	db.QueryRow("SELECT COUNT(*) FROM articles "+amountWhere, amountArgs...).Scan(&stats.WithAmount)
 	db.QueryRow("SELECT COALESCE(SUM(CAST(amount AS REAL)), 0) FROM articles "+amountWhere, amountArgs...).Scan(&stats.TotalAmount)
 
 	offset := (page - 1) * perPage
